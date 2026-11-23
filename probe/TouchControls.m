@@ -16,6 +16,7 @@ extern void FPIWheel(float y);
 extern void FPIText(const char *text);
 extern void FPIPointer(float x,float y);
 extern int FPIGetPointer(float *x,float *y);
+extern void InstallCloudSaves(UIButton *button);
 
 @interface FPInputButton : UIButton
 @property(nonatomic) int scan;
@@ -154,6 +155,7 @@ extern int FPIGetPointer(float *x,float *y);
 @property(nonatomic,strong) FPPointerSurface *pointerSurface;
 @property(nonatomic,strong) UIButton *modeButton;
 @property(nonatomic,strong) UIButton *keyboardToggle;
+@property(nonatomic,strong) UIButton *cloudSaves;
 @property(nonatomic,strong) UILabel *modeHint;
 @property(nonatomic,strong) UIView *keyboard;
 @property(nonatomic,strong) NSMutableArray<NSArray<FPInputButton *> *> *keyRows;
@@ -217,7 +219,10 @@ extern int FPIGetPointer(float *x,float *y);
         self.keyboardToggle=[UIButton buttonWithType:UIButtonTypeSystem];
         [self.keyboardToggle setTitle:@"Keyboard" forState:UIControlStateNormal];
         [self.keyboardToggle addTarget:self action:@selector(toggleKeyboard) forControlEvents:UIControlEventTouchUpInside];
-        for (UIButton *b in @[self.modeButton,self.keyboardToggle]) {
+        self.cloudSaves=[UIButton buttonWithType:UIButtonTypeSystem];
+        [self.cloudSaves addTarget:self action:@selector(releaseInputs) forControlEvents:UIControlEventTouchUpInside];
+        InstallCloudSaves(self.cloudSaves);
+        for (UIButton *b in @[self.modeButton,self.keyboardToggle,self.cloudSaves]) {
             b.backgroundColor=[UIColor colorWithWhite:0.08 alpha:0.65];b.layer.cornerRadius=8;
             [b setTitleColor:UIColor.whiteColor forState:UIControlStateNormal]; [self addSubview:b];
         }
@@ -301,9 +306,10 @@ extern int FPIGetPointer(float *x,float *y);
     [super layoutSubviews];
     CGFloat left=MAX(self.safeAreaInsets.left,12), bottom=self.bounds.size.height-MAX(self.safeAreaInsets.bottom,12)-72;
     // Keep the tutorial/objective panel in the upper-left corner readable.
-    self.toggle.frame=CGRectMake((self.bounds.size.width-352)/2,MAX(self.safeAreaInsets.top,12),112,36);
+    self.toggle.frame=CGRectMake((self.bounds.size.width-472)/2,MAX(self.safeAreaInsets.top,12),112,36);
     self.modeButton.frame=CGRectOffset(self.toggle.frame,120,0);
     self.keyboardToggle.frame=CGRectOffset(self.toggle.frame,240,0);
+    self.cloudSaves.frame=CGRectOffset(self.toggle.frame,360,0);
     CGFloat hintWidth=MIN(440,self.bounds.size.width-32);
     self.modeHint.frame=CGRectMake((self.bounds.size.width-hintWidth)/2,CGRectGetMaxY(self.toggle.frame)+6,hintWidth,44);
     self.joystick.frame=CGRectMake(left,bottom-160,150,150);
