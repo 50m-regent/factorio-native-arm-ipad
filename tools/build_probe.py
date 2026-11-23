@@ -158,12 +158,16 @@ def build_shim(
             str(ROOT / "probe/UIKitEntry.m"),
             str(ROOT / "probe/MetalCompat.m"),
             str(ROOT / "probe/TouchControls.m"),
+            str(ROOT / "probe/SaveSync.m"),
+            str(ROOT / "probe/CloudSaves.m"),
             "-I"
             + str(ROOT / f"build/vendor/SDL-release-{profile.sdl_version}/include"),
             f"-DORIGINAL_MAIN_OFFSET={main_offset}",
             f"-DFACTORIO_SDL_MAJOR={profile.sdl_major}",
             "-framework",
             "UIKit",
+            "-framework",
+            "UniformTypeIdentifiers",
         ]
         sdl = frameworks / f"libSDL{profile.sdl_major}.dylib"
         release = SDL_RELEASES[profile.sdl_version]
