@@ -300,8 +300,10 @@ folder to move between devices. Check that iCloud has finished uploading or
 downloading before switching devices.
 
 For manual saving, open the game menu with `Menu` to return the overlay to Tap.
-Use a new save name if the selected name begins with `_autosave`. If the keyboard
-covers the Save button, use `Hide keyboard` before tapping it.
+Use a new save name if the selected name begins with `_autosave`. Enter a name
+using `Keyboard`, close it with `Hide keyboard`, and press the overlay's `Enter`
+button. This saved successfully on the physical iPad. Tapping the game's Save
+button directly can still fail.
 
 Saves are stored inside the iPad app at `Documents/Factorio/user/saves`, and the
 configuration is stored at `Documents/Factorio/config.ini`. After an update,

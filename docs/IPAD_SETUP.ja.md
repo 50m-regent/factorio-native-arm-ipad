@@ -6,7 +6,7 @@ Factorio 2.1.24、build 87808のSteam版Space Ageを、iPad用アプリとして
 
 署名済みの更新版は `build/XcodeLatestCloudSave/Build/Products/Debug-iphoneos/FactorioProbe.app` にあります。Bundle Identifierは `org.lenhirata.factorioipad` です。署名の有効期限は2026年11月30日18時01分です。時刻は日本時間です。
 
-更新版のインストールは、iPadが接続できた時点で行います。iPadのロックを解除し、ゲームを保存して終了してから、リポジトリのフォルダで次のコマンドを実行します。
+2026年11月25日にセーブをMacへバックアップし、同じアプリIDで更新版をiPadに上書きしました。今後更新するときは、iPadのロックを解除し、ゲームを保存して終了してから、リポジトリのフォルダで次のコマンドを実行します。
 
 ```sh
 xcrun devicectl device install app --device 'LenのiPad' \
@@ -94,14 +94,18 @@ iPadの `Cloud saves` → `Choose backup folder…` から共有用のフォル�
 ゲームは同じバージョンとDLC・MODの構成にそろえてください。切り替える前に
 ファイルアプリやFinderで転送の完了を確認します。
 
+実機では、最新のオートセーブがMacのiCloud Driveに届き、手動セーブ後に同じ固定名のZIPが
+更新されることを確認しました。iPadへ取り込んだZIPも、保存時のファイルと一致しています。
+
 ## 手動でセーブする
 
 画面の `Menu` ボタンからゲームのメニューを開くと、タップで操作できるモードに切り替わります。
 保存画面で `_autosave1` などが選ばれていたら、通常のセーブ名を入力してください。
-キーボードが保存ボタンに重なる場合は、画面上部の `Hide keyboard` で閉じてから保存します。
+画面上部の `Keyboard` で文字を入力できます。入力後は `Hide keyboard` で閉じ、
+画面右側の `Enter` を押すと保存できます。
 
-今回の変更では、バックアップの上書き、以前のZIPの取り込み、同名のセーブの保護、
-未完成のZIPの除外をMacで検査しました。iPadでの保存操作とiCloud転送は別途確認が必要です。
+実機ではこの手順で `ipad.zip` が作成され、ZIPに破損がないことを確認しました。
+ゲーム内の `セーブ` ボタンを直接タップすると反応しない症状は、更新後も確認しています。
 
 ## Steamから再取得する
 
