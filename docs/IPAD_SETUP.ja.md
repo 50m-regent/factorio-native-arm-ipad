@@ -4,13 +4,13 @@ Factorio 2.1.24、build 87808のSteam版Space Ageを、iPad用アプリとして
 
 ## 準備済みのアプリを使う
 
-署名済みアプリは `build/XcodeCloudSync/Build/Products/Debug-iphoneos/FactorioProbe.app` にあります。Bundle Identifierは `org.lenhirata.factorioipad` です。Macとペアリング済みの13インチM5 iPad Proを署名対象に含めています。署名の有効期限は2026年11月30日18時01分です。時刻は日本時間です。
+署名済みの更新版は `build/XcodeLatestCloudSave/Build/Products/Debug-iphoneos/FactorioProbe.app` にあります。Bundle Identifierは `org.lenhirata.factorioipad` です。署名の有効期限は2026年11月30日18時01分です。時刻は日本時間です。
 
-このiPadはiPadOS 27.3で、デベロッパモードが有効です。修正版はインストール済みです。再度更新するときは、iPadのロックを解除した状態で、リポジトリのフォルダーから次のコマンドを実行します。
+2026年11月25日にセーブをMacへバックアップし、同じアプリIDで更新版をiPadに上書きしました。今後更新するときは、iPadのロックを解除し、ゲームを保存して終了してから、リポジトリのフォルダで次のコマンドを実行します。
 
 ```sh
 xcrun devicectl device install app --device 'LenのiPad' \
-  build/XcodeCloudSync/Build/Products/Debug-iphoneos/FactorioProbe.app
+  build/XcodeLatestCloudSave/Build/Products/Debug-iphoneos/FactorioProbe.app
 xcrun devicectl device process launch --device 'LenのiPad' org.lenhirata.factorioipad
 ```
 
@@ -76,57 +76,36 @@ xcrun devicectl device process launch --device 'LenのiPad' org.lenhirata.factor
 
 ## セーブをiCloud Driveで共有する
 
-2026年11月23日に、この機能を追加したアプリを同じBundle Identifierで実機へ上書きしました。
-更新前の設定とセーブは `reports/ipad-backup-before-cloud-sync-20261123/` に保存しています。
-署名と同梱データの検査結果は `reports/verification-cloud-sync.log` にあります。
+iPadとMacで同じApple AccountのiCloud Driveを有効にします。
+iPadの `Cloud saves` → `Choose backup folder…` から共有用のフォルダを選びます。
+以前にフォルダを選んだ場合は、その設定を引き継ぎます。
 
-この機能を含むビルドでは、アプリ上部に `Cloud saves` が表示されます。
-MacとiPadで同じApple AccountのiCloud Driveを有効にしてください。
+起動時と、アプリを開いている間の約5分ごとに、手動セーブとオートセーブの中から
+最後に更新されたZIPを選び、`Factorio iPad Latest.zip` に保存します。
+すぐ確認する場合は `Back up now` を押します。現在のバックアップより新しい
+セーブがあれば置き換えます。`Stop automatic backup` で自動バックアップを停止できます。
 
-1. iCloud Driveに共有用の空のフォルダを作ります。名前は `Factorio Saves` などにします。
-2. iPadの `Cloud saves` → `Choose folder…` から、そのフォルダを選びます。
-3. ゲーム内でセーブします。アプリを開いたまま待つか、`Sync now` を押します。
-4. MacのFinderでiCloud Driveの共有フォルダを開き、コピーとダウンロードの完了を確認します。
-5. Macで遊ぶ場合は、使いたいZIPを `~/Library/Application Support/factorio/saves` へコピーし、ゲームで読み込みます。
-6. Macで続きを保存したら、そのZIPを共有フォルダへコピーします。iPadの同期後、ゲームのロード画面から取り込まれたセーブを開きます。
+以前の同期で増えたZIPはそのまま残ります。最新の1本だけを表示したい場合は、
+新しい空のフォルダを選ぶと、古いファイルと分けられます。
 
-Macのゲーム用フォルダとiCloud Driveの間のコピーは手動です。
-コピー先に同名のセーブがある場合は、別名にして残してください。
-Finderの「移動」→「フォルダへ移動」で上記の保存先を開けます。
-両方のゲームを同じバージョンとDLC・MOD構成にそろえて使います。
+- iPadからMacへ移すときは、FinderでiCloud Driveのバックアップを確認し、ZIPをMacの `~/Library/Application Support/factorio/saves` へコピーします。
+- MacからiPadへ戻すときは、Macで保存したZIPをiCloud Driveへコピーします。iPadの `Cloud saves` → `Import save…` でそのZIPを選び、ゲームのロード画面から開きます。同名のセーブがあれば、取り込んだ方に番号が付きます。
 
-iPad側は、アプリが画面に出ている間、15秒ごとに共有フォルダとアプリ内のセーブを確認します。
-フォルダへのアクセス許可は保存されるため、通常は起動のたびに選び直す必要はありません。
-許可が使えなくなった場合は、`Choose folder…` で選び直します。
-`Stop syncing` で同期を止めても、コピー済みのファイルは残ります。
-操作ボタンを隠しても `Cloud saves` は使えます。
+ゲームは同じバージョンとDLC・MODの構成にそろえてください。切り替える前に
+ファイルアプリやFinderで転送の完了を確認します。
 
-同名で内容が異なる場合は、ファイル名の末尾に `-sync-` と内容のハッシュを付けて残します。
-既存のセーブは上書きしません。別名でも内容が同じファイルは追加しません。
-元のファイル名のまま更新する仕組みではないため、ロード画面で使いたいセーブを選びます。
-ファイルの削除は同期しません。片方だけ削除すると、残っているコピーが次の確認で戻ることがあります。
-古いセーブを整理するときは同期を止め、両方のフォルダで不要なファイルを削除します。
+実機では、最新のオートセーブがMacのiCloud Driveに届き、手動セーブ後に同じ固定名のZIPが
+更新されることを確認しました。iPadへ取り込んだZIPも、保存時のファイルと一致しています。
 
-共有するのは選択したフォルダ直下のZIPだけです。サブフォルダ、設定、MOD本体、
-ブループリントライブラリは対象に含みません。大きなセーブを初めて確認するときは、
-内容の読み取りとコピーに時間がかかります。処理はゲーム画面とは別のキューで実行します。
-ゲーム中の未保存の進行状況は共有できません。
+## 手動でセーブする
 
-ディスク上のテストでは、双方向のコピー、競合時の両方の保存、重複の抑制、
-書き込み途中のZIPの除外、コピー前後の内容の変更、削除後の復元、日本語の長い名前、
-アクセスできないフォルダを確認しています。iPadOS向けソースのコンパイルも検査します。
-実機では読み込み画面に `Cloud saves` ボタンが表示されることを撮影で確認しました。
-撮影結果は `reports/CloudSyncOwned/` にあります。設定画面の表示とフォルダ選択、
-再起動後のアクセス許可、実際のiCloud転送は未検証です。
-実機テスト中にアプリが背面へ移ったため、ゲームの初期化完了も今回の検証では確認していません。
-実機の操作は終了し、これらの確認を残しています。
+画面の `Menu` ボタンからゲームのメニューを開くと、タップで操作できるモードに切り替わります。
+保存画面で `_autosave1` などが選ばれていたら、通常のセーブ名を入力してください。
+画面上部の `Keyboard` で文字を入力できます。入力後は `Hide keyboard` で閉じ、
+画面右側の `Enter` を押すと保存できます。
 
-同期画面のコピー完了は、iCloudへのアップロード完了を示すものではありません。
-端末を切り替える前にゲーム内で保存し、ファイルアプリやFinderで転送の完了を確認してください。
-バックグラウンド中や通信できない間の即時反映は保証しません。
-
-フォルダへのアクセスにはAppleの[フォルダ選択機能](https://developer.apple.com/documentation/uikit/providing-access-to-directories)を使っています。
-アプリ専用のiCloudコンテナや、新しい署名権限は追加していません。
+実機ではこの手順で `ipad.zip` が作成され、ZIPに破損がないことを確認しました。
+ゲーム内の `セーブ` ボタンを直接タップすると反応しない症状は、更新後も確認しています。
 
 ## Steamから再取得する
 
@@ -193,6 +172,6 @@ uv run ruff check tools/source_profiles.py tools/config.py tools/setup.py tools/
 uv run ty check tools/source_profiles.py tools/config.py tools/setup.py tools/audit.py tools/macho.py tools/entrypoint.py tools/build_probe.py tools/prepare_sdl.py tools/verify.py tools/bundle_assets.py tools/check_simulation.py tools/run_probe.py tests/test_*.py
 ```
 
-テスト43件が通っています。対応していない実行ファイルや不完全なデータの拒否、保存したコピーの独立性、データの入れ替え、SDKの読み取り、パッチ前後の命令、データ領域の拡張、検証ログの判定、署名情報の読み取りを確認します。macOSではObjective-Cの画像処理とセーブ同期のテストもコンパイルして実行します。ゲーム本体や実際のiCloud転送はテストに含めません。
+テスト41件が通っています。対応していない実行ファイルや不完全なデータの拒否、保存したコピーの独立性、データの入れ替え、SDKの読み取り、パッチ前後の命令、データ領域の拡張、検証ログの判定、署名情報の読み取りを確認します。macOSではObjective-Cの画像処理とセーブ同期のテストもコンパイルして実行します。ゲーム本体や実際のiCloud転送はテストに含めません。
 
 Objective-Cには、以前から使っているAPIの非推奨警告が2件残っています。

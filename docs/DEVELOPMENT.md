@@ -29,19 +29,17 @@ Run all commands here from the repository root.
 
 ## Check a build without Xcode signing
 
-`uv run pytest tests/test_save_sync.py` compiles `probe/SaveSync.m` with
-Foundation on macOS and exercises real ZIP copies in isolated temporary folders.
-The production engine is shared by the app's iCloud folder workflow. Run the
-full suite with `uv run pytest`; the iCloud account, picker, and persisted
-security-scoped bookmark still need a physical signed-app test.
+`uv run pytest tests/test_save_sync.py` exercises the production save operations
+with isolated folders on macOS. It checks the single rotating backup, preserving
+a newer remote ZIP, ignoring incomplete saves, and importing a selected ZIP
+without replacing local saves.
 
-The save sync engine is in `probe/SaveSync.m`, the document picker and lifecycle
-integration are in `probe/CloudSaves.m`, and the persistent overlay button is in
-`probe/TouchControls.m`. Builds link UniformTypeIdentifiers for the folder picker.
-No new entitlements are needed. Test the picker, cancellation, restarting the
-app, losing folder access, offline operation, and a large save before relying
-on the feature. Select a disposable dedicated iCloud Drive folder for these tests;
-the feature does not touch cloud data until a folder is selected.
+The app accesses the chosen folder through a security-scoped bookmark.
+`probe/CloudSaves.m` owns the schedule and file picker, and `probe/SaveSync.m`
+coordinates and stages files before renaming them into place. Test actual iCloud
+transfer with a signed iPad app and a disposable iCloud Drive folder. For manual
+saving, verify a new name while the system keyboard is visible and after closing
+it, including when entering the game menu from Mine or Cursor mode.
 
 ```sh
 .venv/bin/python tools/prepare_sdl.py --sdk iphoneos
