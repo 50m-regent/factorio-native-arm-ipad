@@ -1,6 +1,9 @@
 #import <Foundation/Foundation.h>
 
-// Runs on one worker queue. Existing saves are never overwritten or deleted.
-@interface FPSaveSyncEngine : NSObject
-- (NSUInteger)syncLocal:(NSURL *)local remote:(NSURL *)remote error:(NSError **)error;
-@end
+extern NSString *const FPLatestCloudSaveName;
+
+// Returns YES only when a new backup is published. A skipped backup has no error.
+BOOL FPBackUpLatestSave(NSURL *localFolder, NSURL *cloudFolder, NSError **error);
+
+// Imports a copy under an unused name and returns its local URL.
+NSURL *FPImportSave(NSURL *source, NSURL *localFolder, NSError **error);

@@ -36,13 +36,10 @@ Mac版とシミュレーターで120回の更新後のチェックサムが一�
 Windowの1600×1200は論理サイズで、描画先の画素数とは別の値です。
 設定の変更方法は[日本語の準備手順](docs/IPAD_SETUP.ja.md#ipadの実解像度で描画する)にあります。
 
-アプリ上部の `Cloud saves` からiCloud Drive内のフォルダを選ぶと、セーブを
-双方向にコピーできます。アプリが画面に出ている間、15秒ごとに確認します。
-同名で内容が違うセーブは別名で残し、既存のセーブを上書き・削除しません。
-Macでの使い方と確認済みの範囲は[セーブをiCloud Driveで共有する](docs/IPAD_SETUP.ja.md#セーブをicloud-driveで共有する)を参照してください。
-2026年11月23日に全43件のテスト、変更したPythonファイルのruff・tyによる検査、
-署名と同梱データの検証を終え、バックアップ後に実機へ上書きしました。
-実際のiCloud転送と再起動後のフォルダへのアクセスは未検証です。
+アプリ上部の `Cloud saves` からiCloud Drive内のフォルダを選ぶと、最新の
+セーブを約5分ごとに `Factorio iPad Latest.zip` として更新します。
+`Import save…` でiCloud DriveのZIPを取り込み、ゲームのロード画面から開けます。
+Macとの受け渡しや手動セーブの手順は、[セーブをiCloud Driveで共有する](docs/IPAD_SETUP.ja.md#セーブをicloud-driveで共有する)を参照してください。
 
 This repository builds a development-signed iPad app from your own macOS
 installation of Factorio. Game simulation, graphics, audio, and saves then run
@@ -289,33 +286,22 @@ Controllers are currently disabled.
 
 ## Saves, updates, and renewing signing
 
-The `Cloud saves` overlay button opens a folder picker. Choose a dedicated folder
-in iCloud Drive to enable two-way, additive copying of top-level `.zip` saves.
-The app remembers access with a security-scoped bookmark; no private iCloud
-container or new signing entitlement is required. Folder access and copies use
-`NSFileCoordinator` on a serial worker queue. Checks run every 15 seconds while
-the app is active, on return to the foreground, and with `Sync now`.
+Choose an iCloud Drive folder in `Cloud saves` to back up the most recently
+modified completed local save, including autosaves. The app checks on launch and
+about every five minutes while active. `Back up now` checks immediately.
+The backup always uses `Factorio iPad Latest.zip`. An existing backup with a
+newer or identical modification time is kept. Earlier copies made by the previous
+sync feature remain available for manual import or cleanup.
 
-Existing files are never overwritten or deleted. When a name already exists with
-different content, the incoming file receives a `-sync-<SHA-256>.zip` suffix.
-Matching content is not copied again, even under a different name. This keeps
-save versions rather than updating an existing save in place. Open the new copy
-in the game's Load menu to continue on another device. Deleting a copy on one
-side does not delete the other; it can be copied back on the next scan. Stop
-syncing before cleaning up versions in both folders. Subfolders and hidden files
-are excluded. Configurations, mods and blueprint libraries are not synchronized.
+To bring a save back, use `Import save…`, select a ZIP in iCloud Drive, and open
+the resulting entry in the game's Load menu. If the name exists locally, the
+import gets a numbered name. Copy ZIPs between Finder and the Mac game's saves
+folder to move between devices. Check that iCloud has finished uploading or
+downloading before switching devices.
 
-The engine skips files modified in the last two seconds and files without ZIP
-start/end markers. It verifies the staged copy's digest and source metadata before
-publishing it with a move that refuses an existing destination. This reduces the
-risk of copying an unfinished game save; it does not validate the save's gameplay
-contents. Disk I/O tests cover conflicts, content deduplication, interrupted
-writes, deletion recovery, Unicode filenames, and inaccessible folders.
-Actual iCloud transfer, persisted folder permissions, and the picker UI still
-require testing on a signed iPad app. A completed local copy does not prove the
-upload has reached iCloud or the Mac. Background delivery timing is controlled by
-iPadOS and iCloud. Save in the game and check iCloud download/upload completion
-before switching devices.
+For manual saving, open the game menu with `Menu` to return the overlay to Tap.
+Use a new save name if the selected name begins with `_autosave`. If the keyboard
+covers the Save button, use `Hide keyboard` before tapping it.
 
 Saves are stored inside the iPad app at `Documents/Factorio/user/saves`, and the
 configuration is stored at `Documents/Factorio/config.ini`. After an update,

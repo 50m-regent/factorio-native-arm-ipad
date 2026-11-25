@@ -45,21 +45,21 @@ def sync_binary(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return binary
 
 
-def save(path: Path, content: str = "factory", *, fresh: bool = False) -> bytes:
-    """Create a complete ZIP and normally age it past the write stability window."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+def save(path: Path, content: str, *, age: int = 10) -> bytes:
+    """Create a ZIP with a controlled modification time."""
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("level.dat", content)
-    if not fresh:
-        timestamp = time.time() - 10
-        os.utime(path, (timestamp, timestamp))
+        archive.writestr("factory/level.dat", content)
+    timestamp = time.time() - age
+    os.utime(path, (timestamp, timestamp))
     return path.read_bytes()
 
 
-def sync(binary: Path, local: Path, remote: Path, *, mode: str = "") -> dict:
-    """Run two consecutive scans to check copying and idempotence with one cache."""
+def run_save_tool(
+    binary: Path, mode: str, local: Path, other: Path
+) -> dict[str, object]:
+    """Run the actual file operations against isolated folders."""
     result = subprocess.run(
-        [str(binary), str(local), str(remote), *([mode] if mode else [])],
+        [str(binary), mode, str(local), str(other)],
         check=True,
         capture_output=True,
         text=True,
@@ -77,123 +77,101 @@ def folders(tmp_path: Path) -> tuple[Path, Path]:
     return local, remote
 
 
-def test_copies_both_directions_once(
+def test_latest_save_replaces_one_backup(
     sync_binary: Path, folders: tuple[Path, Path]
 ) -> None:
-    """Copy new saves both ways and leave unrelated configuration files alone."""
+    """Select by modification time and overwrite a single cloud file on updates."""
     local, remote = folders
-    ipad = save(local / "ipad.zip", "iPad")
-    mac = save(remote / "mac.zip", "Mac")
-    (local / "config.ini").write_text("private")
-    assert sync(sync_binary, local, remote) == {
-        "copied": 2,
-        "secondCopied": 0,
+    backup = remote / "Factorio iPad Latest.zip"
+    legacy = remote / "factory-sync-legacy.zip"
+    original = save(local / "manual.zip", "older", age=50)
+    first = save(local / "_autosave1.zip", "latest", age=30)
+    legacy.write_bytes(original)
+    assert run_save_tool(sync_binary, "backup", local, remote) == {
+        "copied": True,
         "error": "",
     }
-    assert (remote / "ipad.zip").read_bytes() == ipad
-    assert (local / "mac.zip").read_bytes() == mac
-    assert not (remote / "config.ini").exists()
+    assert backup.read_bytes() == first
+    assert run_save_tool(sync_binary, "backup", local, remote)["copied"] is False
+    updated = save(local / "manual.zip", "new progress")
+    assert run_save_tool(sync_binary, "backup", local, remote)["copied"] is True
+    assert backup.read_bytes() == updated
+    assert legacy.read_bytes() == original
+    assert {file.name for file in remote.iterdir()} == {backup.name, legacy.name}
+    assert not (local / legacy.name).exists()
 
 
-def test_preserves_both_conflicting_saves(
-    sync_binary: Path, folders: tuple[Path, Path]
-) -> None:
-    """Never replace a same-name save and do not generate duplicate conflict copies."""
+def test_keeps_newer_cloud_save(sync_binary: Path, folders: tuple[Path, Path]) -> None:
+    """Keep a newer backup when the iPad has fewer or older saves."""
     local, remote = folders
-    ipad = save(local / "factory.zip", "iPad progress")
-    mac = save(remote / "factory.zip", "Mac progress")
-    result = sync(sync_binary, local, remote)
-    assert result == {"copied": 2, "secondCopied": 0, "error": ""}
-    assert (local / "factory.zip").read_bytes() == ipad
-    assert (remote / "factory.zip").read_bytes() == mac
-    assert {p.read_bytes() for p in local.iterdir()} == {ipad, mac}
-    assert {p.read_bytes() for p in remote.iterdir()} == {ipad, mac}
-
-
-def test_deduplicates_content_and_restores_deleted_copy(
-    sync_binary: Path, folders: tuple[Path, Path]
-) -> None:
-    """Match saves by content even after rename and never propagate deletions."""
-    local, remote = folders
-    save(local / "factory.zip")
-    shutil.copy2(local / "factory.zip", remote / "renamed.zip")
-    assert sync(sync_binary, local, remote)["copied"] == 0
-    (local / "factory.zip").unlink()
-    assert sync(sync_binary, local, remote)["copied"] == 1
-    assert (local / "renamed.zip").exists()
-
-
-def test_skips_incomplete_recent_hidden_and_linked_saves(
-    sync_binary: Path, folders: tuple[Path, Path]
-) -> None:
-    """Exclude pending writes, malformed archives, links, hidden files, and subfolders."""
-    local, remote = folders
-    complete = save(local / "source.bin")
-    (local / "partial.zip").write_bytes(complete[:-8])
-    old = time.time() - 10
-    os.utime(local / "partial.zip", (old, old))
-    save(local / "fresh.zip", fresh=True)
-    save(local / ".hidden.zip")
-    save(local / "nested/factory.zip")
-    (local / "link.zip").symlink_to(local / "source.bin")
-    assert sync(sync_binary, local, remote) == {
-        "copied": 0,
-        "secondCopied": 0,
+    save(local / "factory.zip", "old", age=40)
+    backup = remote / "Factorio iPad Latest.zip"
+    expected = save(backup, "new")
+    assert run_save_tool(sync_binary, "backup", local, remote) == {
+        "copied": False,
         "error": "",
     }
-    assert not list(remote.iterdir())
+    assert backup.read_bytes() == expected
 
 
-def test_source_changed_after_inventory_is_not_published(
+def test_ignores_unfinished_or_linked_saves(
     sync_binary: Path, folders: tuple[Path, Path]
 ) -> None:
-    """Reject a staged copy whose content differs from the sampled source digest."""
+    """Keep the previous backup when the only candidates are unsafe to copy."""
     local, remote = folders
-    save(local / "race.zip", "before save")
-    save(local / "replacement.bin", "during save")
-    assert sync(sync_binary, local, remote, mode="race") == {
-        "copied": 0,
-        "secondCopied": 0,
+    expected = save(remote / "Factorio iPad Latest.zip", "previous", age=120)
+    recent = save(local / "recent.zip", "just written", age=0)
+    partial = local / "partial.zip"
+    partial.write_bytes(recent[:-8])
+    timestamp = time.time() - 10
+    os.utime(partial, (timestamp, timestamp))
+    save(local / ".hidden.zip", "hidden")
+    outside = remote / "outside.zip"
+    save(outside, "linked")
+    (local / "link.zip").symlink_to(outside)
+    assert run_save_tool(sync_binary, "backup", local, remote) == {
+        "copied": False,
         "error": "",
     }
-    assert not list(remote.iterdir())
+    assert (remote / "Factorio iPad Latest.zip").read_bytes() == expected
 
 
-def test_long_unicode_conflict_names(
+def test_import_keeps_existing_local_save(
     sync_binary: Path, folders: tuple[Path, Path]
 ) -> None:
-    """Keep generated conflict names within filesystem component length limits."""
+    """Import a selected legacy copy without changing files in either folder."""
     local, remote = folders
-    name = "工場" * 35 + ".zip"
-    save(local / name, "iPad")
-    save(remote / name, "Mac")
-    assert sync(sync_binary, local, remote)["copied"] == 2
-    assert len(list(remote.glob("*.zip"))) == 2
+    name = "工場-sync-old.zip"
+    original = save(local / name, "iPad")
+    selected = remote / name
+    expected = save(selected, "Mac", age=40)
+    result = run_save_tool(sync_binary, "import", local, selected)
+    assert result == {"imported": "工場-sync-old (2).zip", "error": ""}
+    target = local / "工場-sync-old (2).zip"
+    assert (local / name).read_bytes() == original
+    assert target.read_bytes() == selected.read_bytes() == expected
+    assert target.stat().st_mtime == pytest.approx(selected.stat().st_mtime)
 
 
-def test_reports_missing_folder_and_rejects_self_sync(
+def test_import_rejects_incomplete_archive(
     sync_binary: Path, folders: tuple[Path, Path]
 ) -> None:
-    """Return an actionable error when the shared folder cannot be used."""
+    """Report a malformed file and leave no visible or temporary local copy."""
     local, remote = folders
-    save(local / "factory.zip")
-    assert sync(sync_binary, local, remote / "missing")["error"]
-    assert "separate folder" in sync(sync_binary, local, local)["error"]
-    assert len(list(local.iterdir())) == 1
+    selected = remote / "damaged.zip"
+    selected.write_bytes(b"PK\x03\x04")
+    result = run_save_tool(sync_binary, "import", local, selected)
+    assert result["imported"] == ""
+    assert result["error"]
+    assert not list(local.iterdir())
 
 
-def test_later_save_is_exported_without_overwriting_previous_version(
+def test_backup_reports_missing_folder(
     sync_binary: Path, folders: tuple[Path, Path]
 ) -> None:
-    """Invalidate the digest cache when the game atomically replaces a saved file."""
+    """Report a deleted or unavailable backup location."""
     local, remote = folders
-    old = save(local / "factory.zip", "before playing")
-    new = save(local / "replacement.bin", "after playing")
-    assert sync(sync_binary, local, remote, mode="rewrite") == {
-        "copied": 1,
-        "secondCopied": 2,
-        "error": "",
-    }
-    assert (local / "factory.zip").read_bytes() == new
-    assert (remote / "factory.zip").read_bytes() == old
-    assert {p.read_bytes() for p in remote.iterdir()} == {old, new}
+    save(local / "_autosave1.zip", "local")
+    result = run_save_tool(sync_binary, "backup", local, remote / "missing")
+    assert result["copied"] is False
+    assert result["error"]

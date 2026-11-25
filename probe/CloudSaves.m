@@ -2,142 +2,242 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "SaveSync.h"
 
-static NSString *const bookmarkKey=@"FactorioCloudSavesFolder";
+static NSString *const bookmarkKey = @"FactorioCloudSavesFolder";
+static const NSTimeInterval backupInterval = 5 * 60;
+
+static NSURL *localSaves(void) {
+    return [NSURL fileURLWithPath:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Factorio/user/saves"]
+                       isDirectory:YES];
+}
 
 @interface FPCloudSaves : NSObject <UIDocumentPickerDelegate>
-@property(nonatomic,strong) UIButton *button;
+@property(nonatomic,weak) UIButton *button;
 @property(nonatomic,strong) NSURL *folder;
-@property(nonatomic,strong) FPSaveSyncEngine *engine;
 @property(nonatomic,strong) dispatch_queue_t worker;
 @property(nonatomic,copy) NSString *status;
-@property(nonatomic) BOOL syncing;
+@property(nonatomic,strong) UIDocumentPickerViewController *picker;
+@property(nonatomic) NSTimeInterval nextBackup;
+@property(nonatomic) BOOL working;
+@property(nonatomic) BOOL importing;
 @end
 
 @implementation FPCloudSaves
 - (UIViewController *)presenter {
-    UIViewController *controller=self.button.window.rootViewController;
-    while (controller.presentedViewController) controller=controller.presentedViewController;
+    UIViewController *controller = self.button.window.rootViewController;
+    while (controller.presentedViewController && !controller.presentedViewController.isBeingDismissed) {
+        controller = controller.presentedViewController;
+    }
     return controller;
 }
+
 - (void)updateButton {
-    [self.button setTitle:self.syncing ? @"Syncing…" : @"Cloud saves" forState:UIControlStateNormal];
-    self.button.accessibilityValue=self.status;
+    [self.button setTitle:@"Cloud saves" forState:UIControlStateNormal];
+    self.button.accessibilityValue = self.status;
 }
-- (void)message:(NSString *)message {
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Cloud saves" message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
-    [[self presenter] presentViewController:alert animated:YES completion:nil];
-}
+
 - (void)restoreFolder {
-    NSData *bookmark=[NSUserDefaults.standardUserDefaults dataForKey:bookmarkKey];
+    NSData *bookmark = [NSUserDefaults.standardUserDefaults dataForKey:bookmarkKey];
     if (!bookmark) return;
-    self.syncing=YES;
-    [self updateButton];
-    // Bookmark resolution can contact a File Provider; keep it off the game/UI thread.
-    dispatch_async(self.worker,^{
-        BOOL stale=NO;
-        NSError *error=nil;
-        NSURL *folder=[NSURL URLByResolvingBookmarkData:bookmark options:NSURLBookmarkResolutionWithoutUI
-                                         relativeToURL:nil bookmarkDataIsStale:&stale error:&error];
-        if (folder && stale && [folder startAccessingSecurityScopedResource]) {
-            NSData *renewed=[folder bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil relativeToURL:nil error:&error];
+    self.working = YES;
+    dispatch_async(self.worker, ^{
+        BOOL stale = NO;
+        NSURL *folder = [NSURL URLByResolvingBookmarkData:bookmark options:NSURLBookmarkResolutionWithoutUI
+                                            relativeToURL:nil bookmarkDataIsStale:&stale error:NULL];
+        if (stale && [folder startAccessingSecurityScopedResource]) {
+            NSData *renewed = [folder bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil
+                                                 relativeToURL:nil error:NULL];
             if (renewed) [NSUserDefaults.standardUserDefaults setObject:renewed forKey:bookmarkKey];
             [folder stopAccessingSecurityScopedResource];
         }
-        dispatch_async(dispatch_get_main_queue(),^{
-            self.syncing=NO;
-            self.folder=folder;
-            self.status=folder ? @"Waiting to sync." : @"Folder access expired. Choose the folder again.";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.working = NO;
+            self.folder = folder;
+            self.status = folder ? @"Backup enabled." : @"Choose the backup folder again to restore access.";
             [self updateButton];
-            [self syncNow];
+            [self backUpIfDue];
         });
     });
 }
-- (void)syncNow {
-    if (self.syncing || !self.folder || UIApplication.sharedApplication.applicationState!=UIApplicationStateActive) return;
-    self.syncing=YES;
+
+- (void)backUpNow {
+    if (self.working || self.picker || !self.folder ||
+        UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
+
+    self.working = YES;
+    self.status = @"Backing up…";
+    self.nextBackup = NSProcessInfo.processInfo.systemUptime + backupInterval;
     [self updateButton];
-    NSURL *folder=self.folder;
-    NSURL *local=[NSURL fileURLWithPath:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Factorio/user/saves"] isDirectory:YES];
-    dispatch_async(self.worker,^{
+    NSURL *folder = self.folder;
+    dispatch_async(self.worker, ^{
         @autoreleasepool {
-            NSError *error=nil;
-            NSUInteger count=0;
-            BOOL access=[folder startAccessingSecurityScopedResource];
-            if (!access) {
-                error=[NSError errorWithDomain:@"FactorioSaveSync" code:2 userInfo:@{NSLocalizedDescriptionKey:@"Folder access is unavailable. Choose the folder again."}];
-            } else {
+            NSError *error = nil;
+            BOOL copied = NO;
+            NSString *status;
+            if ([folder startAccessingSecurityScopedResource]) {
                 @try {
-                    if ([NSFileManager.defaultManager createDirectoryAtURL:local withIntermediateDirectories:YES attributes:nil error:&error]) {
-                        count=[self.engine syncLocal:local remote:folder error:&error];
+                    NSURL *local = localSaves();
+                    if ([NSFileManager.defaultManager createDirectoryAtURL:local withIntermediateDirectories:YES
+                                                               attributes:nil error:&error]) {
+                        copied = FPBackUpLatestSave(local, folder, &error);
                     }
+                    status = error ? error.localizedDescription : copied
+                        ? @"Backup updated. iCloud upload may still be pending."
+                        : @"No newer completed save to back up.";
                 } @finally {
                     [folder stopAccessingSecurityScopedResource];
                 }
+            } else {
+                status = @"Folder access is unavailable. Choose the backup folder again.";
             }
-            NSString *status=error ? error.localizedDescription : [NSString stringWithFormat:@"Checked %@. Copied %lu save(s). iCloud upload may still be pending.",
-                [NSDateFormatter localizedStringFromDate:NSDate.date dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterMediumStyle],(unsigned long)count];
-            if (error) NSLog(@"FACTORIO_PROBE: cloud save sync: %@",error);
-            dispatch_async(dispatch_get_main_queue(),^{
-                self.syncing=NO;
-                self.status=status;
+            if (error) NSLog(@"FACTORIO_PROBE: cloud backup: %@", error);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.working = NO;
+                self.status = status;
                 [self updateButton];
             });
         }
     });
 }
-- (void)chooseFolder {
-    UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder] asCopy:NO];
-    picker.delegate=self;
-    picker.allowsMultipleSelection=NO;
-    [[self presenter] presentViewController:picker animated:YES completion:nil];
+
+- (void)backUpIfDue {
+    if (NSProcessInfo.processInfo.systemUptime >= self.nextBackup) [self backUpNow];
 }
+
+- (void)becameActive:(NSNotification *)notification {
+    (void)notification;
+    [self backUpIfDue];
+}
+
+- (void)openPickerForImport:(BOOL)importSave {
+    UIViewController *presenter = [self presenter];
+    if (!presenter.viewIfLoaded.window) return;
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc]
+        initForOpeningContentTypes:@[importSave ? UTTypeZIP : UTTypeFolder] asCopy:NO];
+    picker.delegate = self;
+    if (self.folder) picker.directoryURL = self.folder;
+    self.picker = picker;
+    self.importing = importSave;
+    [presenter presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)openPickerForImport:(BOOL)importSave afterMenu:(UIAlertController *)menu {
+    void (^openPicker)(void) = ^{ [self openPickerForImport:importSave]; };
+    if (menu.isBeingDismissed && [menu.transitionCoordinator animateAlongsideTransition:nil
+        completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+            if (!context.isCancelled) openPicker();
+        }]) return;
+    if (menu.presentingViewController) {
+        [menu dismissViewControllerAnimated:YES completion:openPicker];
+    } else {
+        openPicker();
+    }
+}
+
 - (void)showMenu {
-    NSString *message=[NSString stringWithFormat:@"%@\n\n%@\n\nChoose a folder in iCloud Drive. Saves sync both ways every 15 seconds while this app is active. Different versions of the same name are kept as separate saves. Deletions are not synced. Save in the game before switching devices. On Mac, copy saves to or from this folder. Open the copied save to continue.",
-        self.folder ? self.folder.lastPathComponent : @"No folder selected.",self.status ?: @"Sync is off."];
-    UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"Cloud saves" message:message preferredStyle:UIAlertControllerStyleAlert];
-    if (!self.syncing) {
-        if (self.folder) {
-            [alert addAction:[UIAlertAction actionWithTitle:@"Sync now" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self syncNow]; }]];
-            [alert addAction:[UIAlertAction actionWithTitle:@"Stop syncing" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-                self.folder=nil;
-                [NSUserDefaults.standardUserDefaults removeObjectForKey:bookmarkKey];
-                self.status=@"Sync is off. Existing copies have been kept.";
-                [self updateButton];
+    NSString *message = [NSString stringWithFormat:@"%@\n\n%@\n\nThe latest completed save is backed up to %@ about every five minutes while the app is active. Import a ZIP to open it from the game's Load menu.",
+        self.folder.lastPathComponent ?: @"No backup folder selected.", self.status ?: @"",
+        FPLatestCloudSaveName];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Cloud saves" message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    if (!self.working && !self.picker) {
+        __weak UIAlertController *menu = alert;
+        [alert addAction:[UIAlertAction actionWithTitle:@"Import save…" style:UIAlertActionStyleDefault
+            handler:^(UIAlertAction *action) {
+                [self openPickerForImport:YES afterMenu:menu];
             }]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Choose backup folder…" style:UIAlertActionStyleDefault
+            handler:^(UIAlertAction *action) {
+                [self openPickerForImport:NO afterMenu:menu];
+            }]];
+        if (self.folder) {
+            [alert addAction:[UIAlertAction actionWithTitle:@"Back up now" style:UIAlertActionStyleDefault
+                handler:^(UIAlertAction *action) { [self backUpNow]; }]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Stop automatic backup" style:UIAlertActionStyleDefault
+                handler:^(UIAlertAction *action) {
+                    self.folder = nil;
+                    [NSUserDefaults.standardUserDefaults removeObjectForKey:bookmarkKey];
+                    self.status = @"Automatic backup is off.";
+                    [self updateButton];
+                }]];
         }
-        [alert addAction:[UIAlertAction actionWithTitle:@"Choose folder…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [self chooseFolder]; }]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:@"Close" style:UIAlertActionStyleCancel handler:nil]];
     [[self presenter] presentViewController:alert animated:YES completion:nil];
 }
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
+    if (self.picker == controller) self.picker = nil;
+}
+
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
-    NSURL *folder=urls.firstObject;
-    if (!folder || ![folder startAccessingSecurityScopedResource]) {
-        [self message:@"Could not access this folder. Try choosing it again."]; return;
+    if (self.picker != controller) return;
+    self.picker = nil;
+    NSURL *selected = urls.firstObject;
+    if (!selected) return;
+
+    if (![selected startAccessingSecurityScopedResource]) {
+        self.status = @"Could not access the selected item. Try choosing it again.";
+        [self updateButton];
+        return;
     }
-    NSError *error=nil;
-    NSData *bookmark=[folder bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil relativeToURL:nil error:&error];
-    [folder stopAccessingSecurityScopedResource];
-    if (!bookmark) { [self message:error.localizedDescription ?: @"Could not remember this folder."]; return; }
-    [NSUserDefaults.standardUserDefaults setObject:bookmark forKey:bookmarkKey];
-    self.folder=folder;
-    self.status=@"Folder selected. Waiting to sync.";
+    self.working = YES;
+    BOOL importSave = self.importing;
+    self.status = @"Opening the selected item…";
     [self updateButton];
-    [self syncNow];
+    dispatch_async(self.worker, ^{
+        @autoreleasepool {
+            NSError *error = nil;
+            NSData *bookmark = nil;
+            NSURL *imported = nil;
+            @try {
+                if (importSave) {
+                    NSURL *local = localSaves();
+                    if ([NSFileManager.defaultManager createDirectoryAtURL:local withIntermediateDirectories:YES
+                                                               attributes:nil error:&error]) {
+                        imported = FPImportSave(selected, local, &error);
+                    }
+                } else {
+                    bookmark = [selected bookmarkDataWithOptions:0 includingResourceValuesForKeys:nil
+                                                     relativeToURL:nil error:&error];
+                }
+            } @finally {
+                [selected stopAccessingSecurityScopedResource];
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.working = NO;
+                if (bookmark) {
+                    [NSUserDefaults.standardUserDefaults setObject:bookmark forKey:bookmarkKey];
+                    self.folder = selected;
+                    self.status = @"Backup enabled.";
+                    self.nextBackup = 0;
+                } else if (imported) {
+                    self.status = [NSString stringWithFormat:@"Imported %@. Select it from the game's Load menu.",
+                                   imported.lastPathComponent.stringByDeletingPathExtension];
+                } else {
+                    self.status = error.localizedDescription ?: @"Could not open the selected item.";
+                }
+                [self updateButton];
+                if (bookmark) [self backUpIfDue];
+            });
+        }
+    });
 }
 @end
 
 void InstallCloudSaves(UIButton *button) {
-    static FPCloudSaves *sync;
-    if (sync) return;
-    sync=[FPCloudSaves new];
-    sync.button=button;
-    sync.engine=[FPSaveSyncEngine new];
-    sync.worker=dispatch_queue_create("org.factorioipad.save-sync",DISPATCH_QUEUE_SERIAL);
-    [button addTarget:sync action:@selector(showMenu) forControlEvents:UIControlEventTouchUpInside];
-    [sync updateButton];
-    [sync restoreFolder];
-    [NSNotificationCenter.defaultCenter addObserver:sync selector:@selector(syncNow) name:UIApplicationDidBecomeActiveNotification object:nil];
-    [NSTimer scheduledTimerWithTimeInterval:15 repeats:YES block:^(NSTimer *timer) { [sync syncNow]; }];
+    static FPCloudSaves *saves;
+    if (!saves) {
+        saves = [FPCloudSaves new];
+        saves.worker = dispatch_queue_create("org.factorioipad.save-sync", DISPATCH_QUEUE_SERIAL);
+        [NSNotificationCenter.defaultCenter addObserver:saves selector:@selector(becameActive:)
+                                                   name:UIApplicationDidBecomeActiveNotification object:nil];
+        [NSTimer scheduledTimerWithTimeInterval:15 repeats:YES block:^(NSTimer *timer) {
+            (void)timer;
+            [saves backUpIfDue];
+        }];
+        [saves restoreFolder];
+    }
+    saves.button = button;
+    [button addTarget:saves action:@selector(showMenu) forControlEvents:UIControlEventTouchUpInside];
+    [saves updateButton];
 }

@@ -159,6 +159,7 @@ extern void InstallCloudSaves(UIButton *button);
 @property(nonatomic,strong) UILabel *modeHint;
 @property(nonatomic,strong) UIView *keyboard;
 @property(nonatomic,strong) NSMutableArray<NSArray<FPInputButton *> *> *keyRows;
+@property(nonatomic) BOOL systemKeyboardVisible;
 @end
 @implementation FPTouchOverlay
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
@@ -195,7 +196,8 @@ extern void InstallCloudSaves(UIButton *button);
         [self button:@"Tab" scan:SDL_SCANCODE_TAB];
         [self button:@"Pick up" scan:SDL_SCANCODE_F];
         [self button:@"Shoot" scan:SDL_SCANCODE_SPACE];
-        [self button:@"Menu" scan:SDL_SCANCODE_ESCAPE];
+        FPInputButton *menu=[self button:@"Menu" scan:SDL_SCANCODE_ESCAPE];
+        [menu addTarget:self action:@selector(prepareForMenu) forControlEvents:UIControlEventTouchUpInside];
         [self button:@"+" scan:0].wheel=1;
         [self button:@"−" scan:0].wheel=-1;
         [self button:@"Enter" scan:SDL_SCANCODE_RETURN];
@@ -236,6 +238,8 @@ extern void InstallCloudSaves(UIButton *button);
         [self addSubview:self.modeHint];
         [self buildKeyboard];
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(releaseInputs) name:UIApplicationWillResignActiveNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(systemKeyboardChanged:) name:UIKeyboardWillShowNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(systemKeyboardChanged:) name:UIKeyboardWillHideNotification object:nil];
     }
     return self;
 }
@@ -244,10 +248,10 @@ extern void InstallCloudSaves(UIButton *button);
     for (NSArray *row in self.keyRows) for (FPInputButton *b in row) [b sendDown:NO];
     [self.joystick reset]; [self.pointerSurface reset];
 }
-- (void)cycleMode {
+- (void)setTouchMode:(int)mode {
     [self releaseInputs];
-    self.pointerSurface.mode=(self.pointerSurface.mode+1)%3;
-    self.pointerSurface.hidden=self.pointerSurface.mode==0;
+    self.pointerSurface.mode=mode;
+    self.pointerSurface.hidden=!self.expanded || mode==0;
     [self.pointerSurface refreshCursor]; [self.pointerSurface setNeedsDisplay];
     [self.modeButton setTitle:@[@"Tap ▸",@"Mine ▸",@"Cursor ▸"][self.pointerSurface.mode] forState:UIControlStateNormal];
     self.modeHint.text=self.pointerSurface.mode==1
@@ -255,10 +259,36 @@ extern void InstallCloudSaves(UIButton *button);
         : @"Touch to aim; Left / Right click acts at the arrow.\nTo drag, hold a click button and slide another finger.";
     self.modeHint.hidden=self.pointerSurface.mode==0 || !self.keyboard.hidden;
 }
+- (void)cycleMode {
+    [self setTouchMode:(self.pointerSurface.mode+1)%3];
+}
+- (void)updateKeyboardButton {
+    BOOL visible=self.systemKeyboardVisible || !self.keyboard.hidden;
+    [self.keyboardToggle setTitle:visible ? @"Hide keyboard" : @"Keyboard" forState:UIControlStateNormal];
+    self.modeHint.hidden=visible || !self.expanded || self.pointerSurface.mode==0;
+}
+- (void)systemKeyboardChanged:(NSNotification *)notification {
+    self.systemKeyboardVisible=[notification.name isEqualToString:UIKeyboardWillShowNotification];
+    if (self.systemKeyboardVisible) self.keyboard.hidden=YES;
+    [self updateKeyboardButton];
+}
+- (void)hideKeyboard {
+    self.keyboard.hidden=YES;
+    if (self.systemKeyboardVisible) [self.window.rootViewController.view endEditing:YES];
+    [self updateKeyboardButton];
+}
+- (void)prepareForMenu {
+    [self hideKeyboard];
+    [self setTouchMode:0];
+}
 - (void)toggleKeyboard {
     [self releaseInputs];
+    if (self.systemKeyboardVisible) {
+        [self hideKeyboard];
+        return;
+    }
     self.keyboard.hidden=!self.keyboard.hidden;
-    self.modeHint.hidden=!self.keyboard.hidden || self.pointerSurface.mode==0;
+    [self updateKeyboardButton];
 }
 - (void)buildKeyboard {
     self.keyboard=[UIView new]; self.keyboard.hidden=YES;
@@ -286,6 +316,9 @@ extern void InstallCloudSaves(UIButton *button);
             b.latch=[@[@"Shift",@"Ctrl",@"Alt",@"Cmd"] containsObject:label];
             if (label.length==1) b.text=label;
             if ([label isEqual:@"Space"]) b.text=@" ";
+            if (scan==SDL_SCANCODE_RETURN || scan==SDL_SCANCODE_ESCAPE) {
+                [b addTarget:self action:@selector(hideKeyboard) forControlEvents:UIControlEventTouchUpInside];
+            }
             [self.keyboard addSubview:b]; [buttons addObject:b];
         }
         [self.keyRows addObject:buttons];
@@ -299,7 +332,7 @@ extern void InstallCloudSaves(UIButton *button);
     self.modeButton.hidden=!self.expanded;self.keyboardToggle.hidden=!self.expanded;
     self.keyboard.hidden=YES;
     self.pointerSurface.hidden=!self.expanded || self.pointerSurface.mode==0;
-    self.modeHint.hidden=!self.expanded || self.pointerSurface.mode==0;
+    [self updateKeyboardButton];
     [self.toggle setTitle:self.expanded ? @"Hide controls" : @"Show controls" forState:UIControlStateNormal];
 }
 - (void)layoutSubviews {
